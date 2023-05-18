@@ -1,0 +1,214 @@
+---
+title: "ICMPC17 Analysis"
+author: "Kyle M. Lang & Eriko Fukuda"
+date: "`r Sys.time() |> format('%Y-%m-%d')`"
+output: 
+  prettydoc::html_pretty:
+    toc: true
+    df_print: paged 
+    theme: architect
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(message = FALSE, 
+                      warning = FALSE, 
+                      fig.align = "center", 
+                      comment = NA)
+
+options(width = 82)
+```
+
+---
+
+# Setup & Data Preperation
+
+---
+
+First, we'll prep the environment.
+
+```{r prep}
+rm(list = ls(all = TRUE))
+
+library(magrittr)
+library(dplyr)
+library(lme4)
+library(performance)
+library(ggplot2)
+
+source("helper_functions.R")
+
+dataDir <- "../data/"
+fn1     <- "PerMusA_N73.csv"
+fn2     <- "Combined_sample size 73.csv"
+```
+
+Now, we'll load and inspect the data.
+
+```{r data_ingest}
+## Read the data: 
+dat0 <- read.csv2(paste0(dataDir, fn1))
+
+## Temporarily exclude ID (for privacy purposes):
+tmp <- dat0 %>% select(-multichar_response)
+
+## Check data:
+head(tmp)
+summary(tmp)
+str(tmp)
+
+## Any missing data?
+colMeans(is.na(dat0))
+
+## Frequencies of categorical variables:
+table(dat0$correct)
+table(dat0$response)
+table(dat0$title)
+```
+
+We don't need the bird sound condition, so we'll drop those cases.
+
+```{r drop_birds}
+## Drop the bird sound condition:
+dat1 <- dat0 %>%
+    filter(title != "2022_NE") %>%
+    rename(id = multichar_response) %>%
+    mutate(cond = factor(title,
+                         levels = c("2022_NS", "2022_HJ", "2022_HP"),
+                         labels = c("none", "jazz", "pop")
+                         )
+           )
+
+## Check the results:
+dat1 %>% select(-id) %>% head()
+summary(dat1)
+
+levels(dat1$cond)
+dat1 %$% table(cond, title)
+```
+
+Now, we're ready to fit the models.
+
+---
+
+# Modeling
+
+---
+
+Before estimating the hypothesized models, we need to check the influence of the
+nesting. So, we'll calculate the ICC to see how much variability is explained by
+the individuals' self-similarities.
+
+```{r icc}
+## Estimate a random intercept-only model to calculate ICC:
+fit0 <- glmer(correct ~ (1|id), data = dat1, family = "binomial")
+summary(fit0)
+icc(fit0)
+```
+
+The clustering doesn't account for very much variability (i.e., `r round(100 * icc(fit0)$ICC_unadjusted, 2)`\%), but we will still control for it via a random
+intercept.
+
+```{r model1}
+## Fit the hypothesized model:
+fit1 <- glmer(correct ~ cond + (1|id), data = dat1, family = "binomial")
+summary(fit1)
+fixef(fit1) %>% exp()
+```
+
+```{r echo = FALSE}
+cf <- summary(fit1)$coefficients
+
+b1 <- fixef(fit1)[2] %>% round(3)
+z1 <- cf[2, 3] %>% round(2)
+
+b2 <- fixef(fit1)[3] %>% round(3)
+z2 <- cf[3, 3] %>% round(2)
+```
+
+Pop music produces significantly better results than no music (
+$\beta = `r b2`$,
+$OR = `r exp(b2) %>% round(2)`$,
+$z = `r z2`$,
+$p `r getp(fit1, 3)`$
+), but results under jazz music and no music do not significantly differ (
+$\beta = `r b1`$,
+$OR = `r exp(b1) %>% round(2)`$,
+$z = `r z1`$,
+$p `r getp(fit1, 2)`$
+).
+
+```{r model2}
+## Change the reference group to evaluate the other comparison:
+fit2 <- dat1 %>%
+    mutate(cond = relevel(cond, ref = "jazz")) %$%
+    glmer(correct ~ cond + (1|id), family = "binomial")
+summary(fit2)
+fixef(fit2) %>% exp()
+```
+
+```{r, echo = FALSE}
+cf <- summary(fit2)$coefficients
+
+b2 <- fixef(fit1)[3] %>% round(3)
+z2 <- cf[3, 3] %>% round(2)
+```
+
+Pop music also produces significantly better results than jazz music  (
+$\beta = `r b2`$,
+$OR = `r exp(b2) %>% round(2)`$,
+$z = `r z2`$,
+$p `r getp(fit2, 3)`$
+).
+
+---
+
+# Diagnostics
+
+---
+
+Before we can interpret these findings, we need to check out model's assumptions.
+
+```{r assumption1}
+## Estimate (deviance) residuals and fitted values (on the latent scale):
+res  <- resid(fit2, type = "deviance")
+yHat <- predict(fit2, type = "link")
+
+## Plot residuals against fitted values:
+data.frame(yHat, res) %>%
+  ggplot(aes(yHat, res)) +
+  geom_point() +
+  geom_smooth() +
+  theme_classic()
+```
+
+The deviance residuals don't indicate any unmodeled nonlinearity.
+
+```{r assumption2}
+## Check homogeneity of residual variances:
+resid(fit0, type = "deviance") %>% tapply(dat1$cond, var)
+
+## Check homogeneity and linearity:
+data.frame(residual  = resid(fit0, type = "deviance"),
+           condition = dat1$cond) %>%
+  ggplot(aes(condition, residual)) +
+  geom_boxplot() +
+  theme_classic()
+```
+
+The residual variances appear to be approximately equal in each condition.
+
+---
+
+# Conclusions
+
+---
+
+Overall, we can make the following conclusions.
+
+1. The assumptions seem to be satisfied.
+1. The clustering effect is not very strong.
+1. Pop music is significantly better than no sound.
+1. Pop music is significantly better than jazz music.
+1. There is no significant difference between no sound and jazz.
+
+---
