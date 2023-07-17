@@ -1,7 +1,7 @@
 ### Title:    Attention & Sound Analysis
 ### Author:   Kyle M. Lang & Eriko Fukuda
 ### Created:  2023-01-17
-### Modified: 2023-05-29
+### Modified: 2023-07-17
 
 rm(list = ls(all = TRUE))
 
@@ -60,12 +60,19 @@ p1 <- dat1 %>%
   group_by(id, Condition) %>%
   summarise(rate = mean(correct)) %>%
   ggplot(aes(Condition, rate)) +
-  geom_boxplot() +
+  geom_boxplot(linewidth = 1) +
   ylab("Proportion Correct") +
-  theme_classic()
+  theme_classic() +
+  theme(text = element_text(size = 20))
 
-png(paste0(figDir, "rate_correct_by_condition.png"))
+png(paste0(figDir, "rate_correct_by_condition-big_text.png"),
+    width = 20,
+    height = 20,
+    units = "cm",
+    res = 500)
+
 print(p1)
+
 dev.off()
 
 ###-Modeling-----------------------------------------------------------------###
